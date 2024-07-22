@@ -11,15 +11,21 @@ import {
   Component,
   Directive,
   InjectionToken,
+  Injector,
   Input,
   Output,
   ViewChild,
   ViewEncapsulation,
+  computed,
+  effect,
+  inject,
+  runInInjectionContext,
+  signal,
 } from '@angular/core';
 import {EventEmitter} from '@angular/core/src/event_emitter';
 import {isLView} from '@angular/core/src/render3/interfaces/type_checks';
 import {CONTEXT} from '@angular/core/src/render3/interfaces/view';
-import {ComponentFixture, TestBed} from '@angular/core/testing';
+import {ComponentFixture, TestBed, fakeAsync, tick} from '@angular/core/testing';
 
 import {getLContext} from '../../src/render3/context_discovery';
 import {getHostElement} from '../../src/render3/index';
@@ -36,7 +42,11 @@ import {
   getLocalRefs,
   getOwningComponent,
   getRootComponents,
+  getSignalGraph,
 } from '../../src/render3/util/discovery_utils';
+import { DebugComputedNode, DebugEffectNode, DebugSignalGraphEdge, DebugSignalGraphNode, DebugSignalNode, DebugTemplateNode } from '@angular/core/src/render3/util/signal_debug';
+import { getFrameworkDIDebugData, setupFrameworkInjectorProfiler } from '../../../core/src/render3/debug/framework_injector_profiler';
+
 
 describe('discovery utils', () => {
   let fixture: ComponentFixture<MyApp>;
@@ -96,6 +106,8 @@ describe('discovery utils', () => {
       <child dirA *ngIf="conditionalChildVisible"></child>
       <ng-container><p></p></ng-container>
       <b *ngIf="visible">Bold</b>
+
+      {{ primitiveSignal() }}
     `,
   })
   class MyApp {
@@ -104,8 +116,13 @@ describe('discovery utils', () => {
     conditionalChildVisible = true;
     @Input('a') b = 2;
     @Output('c') d = new EventEmitter();
+
+    primitiveSignal = signal(123, {debugName: 'primitiveSignal'});
+
     constructor() {
       myApp = this;
+
+      effect(() => this.primitiveSignal() ** 2, {debugName: 'non template effect'});
     }
 
     log(event: any) {
@@ -392,6 +409,224 @@ describe('discovery utils', () => {
       expect(metadata!.outputs).toEqual({c: 'd'});
     });
   });
+
+  describe('getSignalGraph', () => {
+    beforeEach(() => {
+      // Effect detection depends on the framework injector profiler being enabled
+      setupFrameworkInjectorProfiler();
+    });
+  
+    afterEach(() => {
+      getFrameworkDIDebugData().reset();
+    });
+  
+    function mapEdgeIndicesIntoNodes(
+      edges: DebugSignalGraphEdge[],
+      nodes: DebugSignalGraphNode<unknown>[],
+    ) {
+      return edges.map(({consumer, producer}) => ({
+        consumer: nodes[consumer],
+        producer: nodes[producer],
+      }));
+    }
+  
+  
+    @Component({selector: 'component-with-signals', template: `{{ primitiveSignal() }}`})
+    class WithSignals {
+      primitiveSignal = signal(123, {debugName: 'primitiveSignal'});
+    }
+    @Component({selector: 'component-with-effect', template: ``})
+    class WithEffect {
+      stateFromEffect = 0;
+      primitiveSignal = signal(123, {debugName: 'primitiveSignal'});
+      primitiveSignal2 = signal(456, {debugName: 'primitiveSignal2'});
+  
+      constructor() {
+        effect(
+          () => {
+            this.stateFromEffect = this.primitiveSignal() * this.primitiveSignal2();
+          },
+          {debugName: 'primitiveSignalEffect'},
+        );
+      }
+    }
+  
+    @Component({selector: 'component-with-computed', template: `{{ computedSignal() }}`})
+    class WithComputed {
+      primitiveSignal = signal(123, {debugName: 'primitiveSignal'});
+      primitiveSignal2 = signal(456, {debugName: 'primitiveSignal2'});
+      computedSignal = computed(() => this.primitiveSignal() * this.primitiveSignal2(), {
+        debugName: 'computedSignal',
+      });
+    }
+  
+    @Component({selector: 'component-with-unused-signal', template: ``})
+    class WithUnusedReactiveNodes {
+      primitiveSignal = signal(123, {debugName: 'primitiveSignal'});
+      computedSignal = computed(() => this.primitiveSignal() * this.primitiveSignal(), {
+        debugName: 'computedSignal',
+      });
+    }
+  
+    @Component({selector: 'component-with-zero-effect', template: ``})
+    class WithNoEffectSignalDependencies {
+      primitiveSignal = signal(123, {debugName: 'primitiveSignal'});
+      primitiveSignalEffect = effect(() => {}, {debugName: 'primitiveSignalEffect'});
+    }
+  
+    @Component({selector: 'component-with-no-signal-dependencies', template: ``})
+    class WithNoComputedSignalDependencies {
+      primitiveSignal = signal(123, {debugName: 'primitiveSignal'});
+      primitiveSignalEffect = computed(() => {}, {debugName: 'primitiveSignalEffect'});
+    }
+  
+    @Component({selector: 'component-with-no-effect-dependencies', template: ``})
+    class WithNoEffectDependencies {}
+  
+    beforeAll(() => {
+      TestBed.configureTestingModule({
+        declarations: [
+          WithSignals,
+          WithEffect,
+          WithComputed,
+          WithUnusedReactiveNodes,
+          WithNoEffectSignalDependencies,
+          WithNoComputedSignalDependencies,
+          WithNoEffectDependencies,
+        ],
+      });
+    });
+  
+    it('should return the signal graph for a component with signals', fakeAsync(() => {
+      const fixture = TestBed.createComponent(WithSignals);
+  
+      tick();
+      fixture.detectChanges();
+      const injector = fixture.componentRef.injector;
+      const signalGraph = getSignalGraph(injector);
+  
+      const {nodes, edges} = signalGraph;
+  
+      // 2 nodes
+      //   template
+      //   primitiveSignal
+      expect(nodes.length).toBe(2);
+  
+      // 1 edge
+      //   template depends on primitiveSignal
+      expect(edges.length).toBe(1);
+  
+      const signalNode = nodes.find(
+        (node): node is DebugSignalNode<number> => node.type === 'signal',
+      )!;
+      expect(signalNode).toBeDefined();
+      expect(signalNode.label).toBe('primitiveSignal');
+      expect(signalNode.value).toBe(123);
+    }));
+  
+    it('should return the signal graph for a component with effects', fakeAsync(() => {
+      const fixture = TestBed.createComponent(WithEffect);
+  
+      tick();
+      fixture.detectChanges();
+  
+      const injector = fixture.componentRef.injector;
+      const signalGraph = getSignalGraph(injector);
+  
+      const {nodes, edges} = signalGraph;
+  
+      expect(nodes.length).toBe(3);
+  
+      const effectNode = nodes.find(
+        (node): node is DebugEffectNode => node.label === 'primitiveSignalEffect',
+      )!;
+      expect(effectNode).toBeDefined();
+  
+      const signalNode = nodes.find(
+        (node): node is DebugSignalNode<number> => node.label === 'primitiveSignal',
+      )!;
+      expect(signalNode).toBeDefined();
+  
+      const signalNode2 = nodes.find(
+        (node): node is DebugSignalNode<number> => node.label === 'primitiveSignal2',
+      )!;
+      expect(signalNode2).toBeDefined();
+  
+      expect(edges.length).toBe(2);
+      const edgesWithNodes = mapEdgeIndicesIntoNodes(edges, nodes);
+  
+      expect(edgesWithNodes).toContain({consumer: effectNode, producer: signalNode});
+    }));
+  
+    it('should return the signal graph for a component with a computed', fakeAsync(() => {
+      const fixture = TestBed.createComponent(WithComputed);
+  
+      tick();
+      fixture.detectChanges();
+  
+      const injector = fixture.componentRef.injector;
+      const signalGraph = getSignalGraph(injector);
+  
+      const {nodes, edges} = signalGraph;
+      // 4 nodes
+      //   template
+      //   primitiveSignal
+      //   primitiveSignal2
+      //   computedSignal
+      expect(nodes.length).toBe(4);
+  
+      const templateNode = nodes.find(
+        (node): node is DebugTemplateNode => node.type === 'template',
+      )!;
+      expect(templateNode).toBeDefined();
+  
+      const primitiveSignalNode = nodes.find(
+        (node): node is DebugSignalNode<number> => node.label === 'primitiveSignal',
+      )!;
+      expect(primitiveSignalNode).toBeDefined();
+      expect(primitiveSignalNode.value).toBe(123);
+  
+      const primitiveSignal2Node = nodes.find(
+        (node): node is DebugSignalNode<number> => node.label === 'primitiveSignal2',
+      )!;
+      expect(primitiveSignal2Node).toBeDefined();
+      expect(primitiveSignal2Node.value).toBe(456);
+  
+      const computedSignalNode = nodes.find(
+        (node): node is DebugComputedNode<number> => node.label === 'computedSignal',
+      )!;
+      expect(computedSignalNode).toBeDefined();
+      expect(computedSignalNode.label).toBe('computedSignal');
+      expect(computedSignalNode.value).toBe(123 * 456);
+  
+  
+      // 3 edges
+      //   computedSignal depends on primitiveSignal
+      //   computedSignal depends on primitiveSignal2
+      //   template depends on computedSignal
+      expect(edges.length).toBe(3);
+  
+      const edgesWithNodes = mapEdgeIndicesIntoNodes(edges, nodes);
+  
+      expect(edgesWithNodes).toContain({consumer: templateNode, producer: computedSignalNode});
+      expect(edgesWithNodes).toContain({consumer: computedSignalNode, producer: primitiveSignalNode});
+      expect(edgesWithNodes).toContain({consumer: computedSignalNode, producer: primitiveSignal2Node});
+    }));
+  
+    it('should return the signal graph for a component with unused reactive nodes', fakeAsync(() => {
+      const fixture = TestBed.createComponent(WithUnusedReactiveNodes);
+  
+      tick();
+      fixture.detectChanges();
+  
+      const injector = fixture.componentRef.injector;
+      const signalGraph = getSignalGraph(injector);
+  
+      const {nodes, edges} = signalGraph;
+      expect(nodes.length).toBe(0);
+      expect(edges.length).toBe(0);
+    }));
+  });  
 });
 
 describe('discovery utils deprecated', () => {

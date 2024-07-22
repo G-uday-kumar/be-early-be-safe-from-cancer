@@ -15,14 +15,16 @@ import {ZoneUnawareIFrameMessageBus} from '../../zone-unaware-iframe-message-bus
 
 import {DemoAppComponent} from './demo-app.component';
 import {HeavyComponent} from './heavy.component';
-import {SamplePropertiesComponent} from './sample-properties.component';
+import {NgContentComponent, SamplePropertiesComponent} from './sample-properties.component';
 import {ZippyComponent} from './zippy.component';
+import {CommonModule} from '@angular/common';
 
 @NgModule({
-  declarations: [DemoAppComponent, HeavyComponent, SamplePropertiesComponent],
+  declarations: [DemoAppComponent, HeavyComponent, SamplePropertiesComponent, NgContentComponent],
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
   exports: [DemoAppComponent],
   imports: [
+    CommonModule,
     RouterModule.forChild([
       {
         path: '',

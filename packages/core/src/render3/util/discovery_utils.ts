@@ -6,10 +6,12 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
+import {ComputedNode, SIGNAL, SignalNode} from '@angular/core/primitives/signals';
 import {ChangeDetectionStrategy} from '../../change_detection/constants';
 import {Injector} from '../../di/injector';
 import {ViewEncapsulation} from '../../metadata/view';
-import {assertLView} from '../assert';
+import {throwError} from '../../util/assert';
+import {assertLView, assertTNode} from '../assert';
 import {
   discoverLocalRefs,
   getComponentAtNodeIndex,
@@ -18,13 +20,39 @@ import {
   readPatchedLView,
 } from '../context_discovery';
 import {getComponentDef, getDirectiveDef} from '../definition';
-import {NodeInjector} from '../di';
+import {NodeInjector, getNodeInjectorLView, getNodeInjectorTNode} from '../di';
 import {DirectiveDef} from '../interfaces/definition';
 import {TElementNode, TNode, TNodeProviderIndexes} from '../interfaces/node';
-import {CLEANUP, CONTEXT, FLAGS, LView, LViewFlags, TVIEW, TViewType} from '../interfaces/view';
+import {
+  CLEANUP,
+  CONTEXT,
+  FLAGS,
+  HOST,
+  LView,
+  LViewFlags,
+  REACTIVE_TEMPLATE_CONSUMER,
+  TVIEW,
+  TViewType,
+} from '../interfaces/view';
 
 import {getRootContext} from './view_traversal_utils';
 import {getLViewParent, unwrapRNode} from './view_utils';
+import {isLView} from '../interfaces/type_checks';
+import {getFrameworkDIDebugData} from '../debug/framework_injector_profiler';
+import {Watch, WatchNode} from '@angular/core/primitives/signals/src/watch';
+import {R3Injector} from '../../di/r3_injector';
+import {ReactiveLViewConsumer} from '../reactive_lview_consumer';
+import {EffectHandle} from '../reactivity/effect';
+import {
+  SignalGraphNode,
+  DebugSignalGraph,
+  DebugSignalGraphNode,
+  DebugSignalGraphEdge,
+  getTemplateConsumer,
+  extractEffectsFromInjector,
+  extractSignalNodesAndEdgesFromRoot,
+  getNodesAndEdgesFromSignalMap,
+} from './signal_debug';
 
 /**
  * Retrieves the component instance associated with a given DOM element.
@@ -512,4 +540,28 @@ function extractInputDebugMetadata<T>(inputs: DirectiveDef<T>['inputs']) {
   }
 
   return res;
+}
+
+export function getSignalGraph(injector: Injector): DebugSignalGraph<unknown> {
+  if (!(injector instanceof NodeInjector) && !(injector instanceof R3Injector)) {
+    return throwError('getSignals must be called with a NodeInjector or an R3Injector');
+  }
+
+  const signalDependenciesMap = new Map<SignalGraphNode<unknown>, Set<SignalGraphNode<unknown>>>();
+
+  let templateConsumer: ReactiveLViewConsumer | null = null;
+  if (injector instanceof NodeInjector) {
+    templateConsumer = getTemplateConsumer(injector);
+  }
+  const nonTemplateEffectNodes = extractEffectsFromInjector(injector);
+
+  const signalNodes = templateConsumer
+    ? [templateConsumer, ...nonTemplateEffectNodes]
+    : nonTemplateEffectNodes;
+
+  for (const signalNode of signalNodes) {
+    extractSignalNodesAndEdgesFromRoot(signalNode, signalDependenciesMap);
+  }
+
+  return getNodesAndEdgesFromSignalMap(signalDependenciesMap);
 }
