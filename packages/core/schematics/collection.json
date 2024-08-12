@@ -29,6 +29,12 @@
       "factory": "./bundles/signal-input-migration#migrate",
       "schema": "./ng-generate/signal-input-migration/schema.json",
       "aliases": ["signal-inputs", "signal-input"]
+    },
+    "self-closing-tag-migration": {
+      "description": "Updates the component templates to use self-closing tags where possible",
+      "factory": "./bundles/self-closing-tag-migration#migrate",
+      "schema": "./ng-generate/self-closing-tag-migration/schema.json",
+      "aliases": ["self-closing-tag"]
     }
   }
 }
