@@ -134,6 +134,3 @@ Use model inputs when you want a component to support two-way binding. This is t
 appropriate when a component exists to modify a value based on user interaction. Most commonly, 
 custom form controls such as a date picker or combobox should use model inputs for their primary 
 value.
-
-Avoid using model inputs when you don't specifically want to support two-way binding and instead 
-want to make an input writable programmatically.
