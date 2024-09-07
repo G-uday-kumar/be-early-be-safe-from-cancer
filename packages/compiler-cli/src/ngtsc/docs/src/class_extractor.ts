@@ -267,11 +267,22 @@ class ClassExtractor {
 
   /** The result only contains properties, method implementations and abstracts */
   private filterMethodOverloads(declarations: ts.Declaration[]) {
-    return declarations.filter((declaration) => {
+    return declarations.filter((declaration, index) => {
       if (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration)) {
-        return (
-          !!declaration.body || ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Abstract
-        );
+        if (ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Abstract) {
+          const previousDeclaration = declarations[index - 1];
+
+          const samePreviousAbstractMethod =
+            previousDeclaration &&
+            ts.isMethodDeclaration(previousDeclaration) &&
+            previousDeclaration.name.getText() === declaration.name?.getText();
+
+          // In the case of Abstract Methods we only want to return the first abstract.
+          // Others with the same name are considered as overloads
+          return !samePreviousAbstractMethod;
+        }
+
+        return !!declaration.body;
       }
       return true;
     });
