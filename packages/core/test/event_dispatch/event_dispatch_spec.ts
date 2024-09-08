@@ -29,7 +29,6 @@ describe('event dispatch', () => {
     const onClickSpy = jasmine.createSpy();
     @Component({
       selector: 'app',
-      standalone: true,
       template: `
         <button id="btn" (click)="onClick()"></button>
       `,
@@ -55,7 +54,6 @@ describe('event dispatch', () => {
 
     @Component({
       selector: 'app',
-      standalone: true,
       template: `
         <button id="btn" (click)="onClick()" #localRef></button>
       `,
@@ -73,7 +71,6 @@ describe('event dispatch', () => {
     const innerOnClickSpy = jasmine.createSpy();
     @Component({
       selector: 'app-card',
-      standalone: true,
       template: `
         <div class="card">
           <button id="inner-button" (click)="onClick()"></button>
@@ -88,7 +85,6 @@ describe('event dispatch', () => {
     @Component({
       selector: 'app',
       imports: [CardComponent],
-      standalone: true,
       template: `
         <app-card>
           <h2>Card Title</h2>
@@ -114,7 +110,6 @@ describe('event dispatch', () => {
     it('should propagate events', async () => {
       const onClickSpy = jasmine.createSpy();
       @Component({
-        standalone: true,
         selector: 'app',
         template: `
             <div id="top" (click)="onClick()">
@@ -135,7 +130,6 @@ describe('event dispatch', () => {
 
     it('should not propagate events if stopPropagation is called', async () => {
       @Component({
-        standalone: true,
         selector: 'app',
         template: `
             <div id="top" (click)="onClick($event)">
@@ -158,7 +152,6 @@ describe('event dispatch', () => {
     });
     it('should call the original stopPropagation method', async () => {
       @Component({
-        standalone: true,
         selector: 'app',
         template: `
             <div id="top" (click)="onClick($event)">
@@ -191,7 +184,6 @@ describe('event dispatch', () => {
     it('should trigger events when manually registered', async () => {
       const onClickSpy = jasmine.createSpy();
       @Component({
-        standalone: true,
         selector: 'app',
         template: `
             <div id="top">
@@ -222,7 +214,6 @@ describe('event dispatch', () => {
     it('should allow host listening on the window', async () => {
       const onClickSpy = jasmine.createSpy();
       @Component({
-        standalone: true,
         selector: 'app',
         template: `
             <div id="top">
@@ -248,7 +239,6 @@ describe('event dispatch', () => {
     it('should allow host listening on the window', async () => {
       const onClickSpy = jasmine.createSpy();
       @Component({
-        standalone: true,
         selector: 'app',
         template: `
             <div id="top">
@@ -279,7 +269,6 @@ describe('capture behavior', () => {
   it('should not bubble', async () => {
     const onFocusSpy = jasmine.createSpy();
     @Component({
-      standalone: true,
       selector: 'app',
       template: `
           <div id="top" (focus)="onFocus()">
