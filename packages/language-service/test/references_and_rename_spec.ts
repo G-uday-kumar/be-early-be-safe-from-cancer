@@ -37,7 +37,10 @@ describe('find references and rename locations', () => {
       const files = {
         'app.ts': `import {Component} from '@angular/core';
 
-          @Component({templateUrl: './app.html'})
+          @Component({
+            templateUrl: './app.html',
+            standalone: false,
+          })
           export class AppCmp {
             myProp!: string;
           }`,
@@ -72,7 +75,10 @@ describe('find references and rename locations', () => {
         'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({templateUrl: './app.html'})
+          @Component({
+            templateUrl: './app.html',
+            standalone: false,
+          })
           export class AppCmp {
             myProp = '';
           }`,
@@ -107,7 +113,10 @@ describe('find references and rename locations', () => {
         'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({template: '<div (click)="setTitle(2)"></div>'})
+          @Component({
+            template: '<div (click)="setTitle(2)"></div>',
+            standalone: false,
+          })
           export class AppCmp {
             setTitle(s: number) {}
           }`,
@@ -143,7 +152,10 @@ describe('find references and rename locations', () => {
         'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({template: '<div (click)="setTitle(title)"></div>'})
+          @Component({
+            template: '<div (click)="setTitle(title)"></div>',
+            standalone: false,
+          })
           export class AppCmp {
             title = '';
             setTitle(s: string) {}
@@ -177,7 +189,10 @@ describe('find references and rename locations', () => {
       const files = {
         'app.ts': `
           import {Component} from '@angular/core';
-          @Component({template: '<div (click)="setTitle($event)"></div>'})
+          @Component({
+            template: '<div (click)="setTitle($event)"></div>',
+            standalone: false,
+          })
           export class AppCmp {
             setTitle(s: any) {}
           }`,
@@ -209,7 +224,10 @@ describe('find references and rename locations', () => {
         'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({templateUrl: './app.html' })
+          @Component({
+            templateUrl: './app.html',
+            standalone: false,
+          })
           export class AppCmp {
             title = '';
           }`,
@@ -246,7 +264,10 @@ describe('find references and rename locations', () => {
         'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({template: '<div (click)="title = otherTitle"></div>' })
+          @Component({
+            template: '<div (click)="title = otherTitle"></div>',
+            standalone: false,
+          })
           export class AppCmp {
             title = '';
             otherTitle = '';
@@ -284,7 +305,10 @@ describe('find references and rename locations', () => {
         'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({template: '{{hero["name"]}}' })
+          @Component({
+            template: '{{hero["name"]}}',
+            standalone: false,
+          })
           export class AppCmp {
             hero: {name: string} = {name: 'Superman'};
           }`,
@@ -331,7 +355,10 @@ describe('find references and rename locations', () => {
         'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({templateUrl: './app.html' })
+          @Component({
+            templateUrl: './app.html',
+            standalone: false,
+          })
           export class AppCmp {
             hero: {name: string} = {name: 'Superman'};
             batman = 'batman';
@@ -369,7 +396,10 @@ describe('find references and rename locations', () => {
         'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({template: '<input #myInput /> {{ myInput.value }}'})
+          @Component({
+            template: '<input #myInput /> {{ myInput.value }}',
+            standalone: false,
+          })
           export class AppCmp {
             title = '';
           }`,
@@ -403,7 +433,10 @@ describe('find references and rename locations', () => {
         'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({templateUrl: './app.html'})
+          @Component({
+            templateUrl: './app.html',
+            standalone: false,
+          })
           export class AppCmp {
             title = '';
           }`,
@@ -437,7 +470,11 @@ describe('find references and rename locations', () => {
       const dirFileContents = `
             import {Directive} from '@angular/core';
 
-            @Directive({selector: '[dir]', exportAs: 'myDir'})
+            @Directive({
+              selector: '[dir]', 
+              exportAs: 'myDir',
+              standalone: false,
+            })
             export class Dir {
               dirValue!: string;
               doSomething() {}
@@ -445,7 +482,10 @@ describe('find references and rename locations', () => {
       const appFileContents = `
             import {Component} from '@angular/core';
 
-            @Component({templateUrl: './app.html'})
+            @Component({
+              templateUrl: './app.html',
+              standalone: false,
+            })
             export class AppCmp {}`;
 
       describe('when cursor is on usage of template reference', () => {
@@ -574,7 +614,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({templateUrl: './template.ng.html'})
+          @Component({
+            templateUrl: './template.ng.html',
+            standalone: false,
+          })
           export class AppCmp {
             heroes: string[] = [];
           }`,
@@ -614,7 +657,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({template: '<div *ngFor="let hero of heroes; let iRef = index">{{iRef}}</div>'})
+          @Component({
+            template: '<div *ngFor="let hero of heroes; let iRef = index">{{iRef}}</div>',
+            standalone: false,
+          })
           export class AppCmp {
             heroes: string[] = [];
           }`,
@@ -652,7 +698,10 @@ describe('find references and rename locations', () => {
           constructor(readonly $implicit: T, readonly identifier: string) {}
         }
 
-        @Directive({ selector: '[example]' })
+        @Directive({ 
+          selector: '[example]',
+          standalone: false,
+        })
         export class ExampleDirective<T> {
           @Input() set example(v: T) { }
           static ngTemplateContextGuard<T>(dir: ExampleDirective<T>, ctx: unknown):
@@ -664,7 +713,10 @@ describe('find references and rename locations', () => {
         import {Component, NgModule} from '@angular/core';
         import {ExampleDirective} from './example-directive';
 
-        @Component({template: '<div *example="state; let id = identifier">{{id}}</div>'})
+        @Component({
+          template: '<div *example="state; let id = identifier">{{id}}</div>',
+          standalone: false,  
+        })
         export class AppCmp {
           state = {};
         }
@@ -703,7 +755,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
             import {Component} from '@angular/core';
 
-            @Component({template: '<div *ngFor="let hero of heroes">{{hero.name}}</div>'})
+            @Component({
+              template: '<div *ngFor="let hero of heroes">{{hero.name}}</div>',
+              standalone: false,  
+            })
             export class AppCmp {
               heroes: Array<{name: string}> = [];
             }`,
@@ -737,7 +792,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
             import {Component} from '@angular/core';
 
-            @Component({template: '<div (click)="setHero({name})"></div>'})
+            @Component({
+              template: '<div (click)="setHero({name})"></div>',
+              standalone: false,
+            })
             export class AppCmp {
               name = 'Frodo';
 
@@ -771,7 +829,10 @@ describe('find references and rename locations', () => {
     const prefixPipe = `
         import {Pipe, PipeTransform} from '@angular/core';
 
-        @Pipe({ name: 'prefixPipe' })
+        @Pipe({ 
+          name: 'prefixPipe',
+          standalone: false,
+        })
         export class PrefixPipe implements PipeTransform {
           transform(value: string, prefix: string): string;
           transform(value: number, prefix: number): number;
@@ -788,7 +849,10 @@ describe('find references and rename locations', () => {
             'app.ts': `
         import {Component} from '@angular/core';
 
-        @Component({template: '{{birthday | prefixPipe: "MM/dd/yy"}}'})
+        @Component({
+          template: '{{birthday | prefixPipe: "MM/dd/yy"}}',
+          standalone: false,
+        })
         export class AppCmp {
           birthday = '';
         }
@@ -829,7 +893,10 @@ describe('find references and rename locations', () => {
           '/app.ts': `
         import {Component} from '@angular/core';
 
-        @Component({template: '{{birthday | prefixPipe: "MM/dd/yy"}}'})
+        @Component({
+          template: '{{birthday | prefixPipe: "MM/dd/yy"}}',
+          standalone: false,
+        })
         export class AppCmp {
           birthday = '';
         }
@@ -861,7 +928,10 @@ describe('find references and rename locations', () => {
           '/base_pipe.ts': `
         import {Pipe, PipeTransform} from '@angular/core';
 
-        @Pipe({ name: 'basePipe' })
+        @Pipe({ 
+          name: 'basePipe',
+          standalone: false,
+        })
         export class BasePipe implements PipeTransform {
           transform(value: string, prefix: string): string;
           transform(value: number, prefix: number): number;
@@ -873,7 +943,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
             import {Component} from '@angular/core';
 
-            @Component({template: '{{"a" | prefixPipe: "MM/dd/yy"}}'})
+            @Component({
+              template: '{{"a" | prefixPipe: "MM/dd/yy"}}',
+              standalone: false,
+            })
             export class AppCmp { }
           `,
         };
@@ -896,7 +969,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
         import {Component} from '@angular/core';
 
-        @Component({template: '{{birthday | prefixPipe: prefix}}'})
+        @Component({
+          template: '{{birthday | prefixPipe: prefix}}',
+          standalone: false,
+        })
         export class AppCmp {
           birthday = '';
           prefix = '';
@@ -930,7 +1006,10 @@ describe('find references and rename locations', () => {
     const dirFileContents = `
         import {Directive, Input} from '@angular/core';
 
-        @Directive({selector: '[string-model]'})
+        @Directive({
+          selector: '[string-model]',
+          standalone: false,
+        })
         export class StringModel {
           @Input() model!: string;
           @Input('alias') aliasedModel!: string;
@@ -943,7 +1022,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
         import {Component} from '@angular/core';
 
-        @Component({template: '<div string-model [model]="title"></div>'})
+        @Component({
+          template: '<div string-model [model]="title"></div>',
+          standalone: false,
+        })
         export class AppCmp {
           title = 'title';
         }`,
@@ -977,7 +1059,10 @@ describe('find references and rename locations', () => {
           'other-dir.ts': `
         import {Directive, Input} from '@angular/core';
 
-        @Directive({selector: '[string-model]'})
+        @Directive({
+          selector: '[string-model]',
+          standalone: false,
+        })
         export class OtherDir {
           @Input('model') otherDirAliasedInput!: any;
         }
@@ -986,7 +1071,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
         import {Component} from '@angular/core';
 
-        @Component({template: '<div string-model [model]="title"></div>'})
+        @Component({
+          template: '<div string-model [model]="title"></div>',
+          standalone: false,
+        })
         export class AppCmp {
           title = 'title';
         }`,
@@ -1026,7 +1114,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
         import {Component} from '@angular/core';
 
-        @Component({template: '<div string-model model="title"></div>'})
+        @Component({
+          template: '<div string-model model="title"></div>',
+          standalone: false,
+        })
         export class AppCmp {
           title = 'title';
         }`,
@@ -1060,14 +1151,20 @@ describe('find references and rename locations', () => {
           'string-model.ts': `
         import {Directive, Input} from '@angular/core';
 
-        @Directive({selector: '[string-model]'})
+        @Directive({
+          selector: '[string-model]',
+          standalone: false,
+        })
         export class StringModel {
           @Input() model!: string;
         }`,
           'app.ts': `
         import {Component} from '@angular/core';
 
-        @Component({template: '<div string-model model="title"></div>'})
+        @Component({
+          template: '<div string-model model="title"></div>',
+          standalone: false,
+        })
         export class AppCmp {
           title = 'title';
         }`,
@@ -1102,7 +1199,10 @@ describe('find references and rename locations', () => {
         import {Directive, Input} from '@angular/core';
         import {StringModel} from './string-model';
 
-        @Directive({selector: '[other-dir]'})
+        @Directive({
+          selector: '[other-dir]',
+          standalone: false,
+        })
         export class OtherDir {
           @Input() stringModelRef!: StringModel;
 
@@ -1113,14 +1213,20 @@ describe('find references and rename locations', () => {
           'string-model.ts': `
         import {Directive, Input} from '@angular/core';
 
-        @Directive({selector: '[string-model]'})
+        @Directive({
+          selector: '[string-model]',
+          standalone: false,
+        })
         export class StringModel {
           @Input() model!: string;
         }`,
           'app.ts': `
         import {Component} from '@angular/core';
 
-        @Component({template: '<div string-model other-dir model="title"></div>'})
+        @Component({
+          template: '<div string-model other-dir model="title"></div>',
+          standalone: false,
+        })
         export class AppCmp {
           title = 'title';
         }`,
@@ -1155,7 +1261,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
         import {Component} from '@angular/core';
 
-        @Component({template: '<div string-model [alias]="title"></div>'})
+        @Component({
+          template: '<div string-model [alias]="title"></div>',
+          standalone: false,
+        })
         export class AppCmp {
           title = 'title';
         }`,
@@ -1189,7 +1298,10 @@ describe('find references and rename locations', () => {
     const dirFile = `
         import {Directive, Output, EventEmitter} from '@angular/core';
 
-        @Directive({selector: '[string-model]'})
+        @Directive({
+          selector: '[string-model]',
+          standalone: false,
+        })
         export class StringModel {
           @Output() modelChange = new EventEmitter<string>();
           @Output('alias') aliasedModelChange = new EventEmitter<string>();
@@ -1200,7 +1312,10 @@ describe('find references and rename locations', () => {
         import {Component, NgModule} from '@angular/core';
         import {StringModel} from './string-model';
 
-        @Component({template: '${template}'})
+        @Component({
+          template: '${template}',
+          standalone: false,
+        })
         export class AppCmp {
           setTitle(s: string) {}
         }
@@ -1270,7 +1385,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({templateUrl: './template.ng.html'})
+          @Component({
+            templateUrl: './template.ng.html',
+            standalone: false,
+          })
           export class AppCmp {
           }`,
           'template.ng.html': `
@@ -1308,7 +1426,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
           import {Component} from '@angular/core';
 
-          @Component({templateUrl: './template.ng.html'})
+          @Component({
+            templateUrl: './template.ng.html',
+            standalone: false,
+          })
           export class AppCmp {
           }`,
           'template.ng.html': `
@@ -1345,7 +1466,10 @@ describe('find references and rename locations', () => {
       'dir.ts': `
       import {Directive, Input, Output} from '@angular/core';
 
-      @Directive({selector: '[string-model]'})
+      @Directive({
+        selector: '[string-model]',
+        standalone: false,
+      })
       export class StringModel {
         @Input() model!: any;
         @Output() modelChange!: any;
@@ -1353,7 +1477,10 @@ describe('find references and rename locations', () => {
       'app.ts': `
       import {Component} from '@angular/core';
 
-      @Component({template: '<div string-model [(model)]="title"></div>'})
+      @Component({
+        template: '<div string-model [(model)]="title"></div>',
+        standalone: false,
+      })
       export class AppCmp {
         title = 'title';
       }`,
@@ -1375,14 +1502,20 @@ describe('find references and rename locations', () => {
       'dir.ts': `
         import {Directive, model} from '@angular/core';
 
-        @Directive({selector: '[signal-model]'})
+        @Directive({
+          selector: '[signal-model]',
+          standalone: false,
+        })
         export class SignalModel {
           signalModel = model<string>();
         }`,
       'app.ts': `
         import {Component} from '@angular/core';
 
-        @Component({template: '<div signal-model [(signalModel)]="title"></div>'})
+        @Component({
+          template: '<div signal-model [(signalModel)]="title"></div>',
+          standalone: false,
+        })
         export class AppCmp {
           title = 'title';
         }`,
@@ -1407,13 +1540,19 @@ describe('find references and rename locations', () => {
           'dir.ts': `
       import {Directive} from '@angular/core';
 
-      @Directive({selector: '[dir]'})
+      @Directive({
+        selector: '[dir]', 
+        standalone: false,
+      })
       export class Dir {}`,
           'app.ts': `
         import {Component, NgModule} from '@angular/core';
         import {Dir} from './dir';
 
-        @Component({template: '<div dir></div>'})
+        @Component({
+          template: '<div dir></div>',
+          standalone: false,
+        })
         export class AppCmp {
         }
 
@@ -1453,19 +1592,28 @@ describe('find references and rename locations', () => {
         const dirFile = `
       import {Directive} from '@angular/core';
 
-      @Directive({selector: '[dir]'})
+      @Directive({
+        selector: '[dir]',
+        standalone: false,
+      })
       export class Dir {}`;
         const dirFile2 = `
       import {Directive} from '@angular/core';
 
-      @Directive({selector: '[dir]'})
+      @Directive({
+        selector: '[dir]',
+        standalone: false,
+      })
       export class Dir2 {}`;
         const appFile = `
         import {Component, NgModule} from '@angular/core';
         import {Dir} from './dir';
         import {Dir2} from './dir2';
 
-        @Component({template: '<div dir></div>'})
+        @Component({
+          template: '<div dir></div>',
+          standalone: false,
+        })
         export class AppCmp {
         }
 
@@ -1506,7 +1654,10 @@ describe('find references and rename locations', () => {
           'app.ts': `
         import {Component, NgModule} from '@angular/core';
 
-        @Component({template: '<div *ngFor="let item of items"></div>'})
+        @Component({
+          template: '<div *ngFor="let item of items"></div>',
+          standalone: false,
+        })
         export class AppCmp {
           items = [];
         }
@@ -1540,13 +1691,20 @@ describe('find references and rename locations', () => {
         const myComp = `
       import {Component} from '@angular/core';
 
-      @Component({selector: 'my-comp', template: ''})
+      @Component({
+        selector: 'my-comp', 
+        template: '',
+        standalone: false,
+      })
       export class MyComp {}`;
         const appFile = `
         import {Component, NgModule} from '@angular/core';
         import {MyComp} from './comp';
 
-        @Component({template: '<my-comp></my-comp>'})
+        @Component({
+          template: '<my-comp></my-comp>',
+          standalone: false,
+        })
         export class AppCmp {
         }
 
@@ -1585,13 +1743,19 @@ describe('find references and rename locations', () => {
         const compFile = `
       import {Component} from '@angular/core';
 
-      @Component({selector: 'my-comp', template: ''})
+      @Component({
+        selector: 'my-comp', template: '', 
+        standalone: false,
+      })
       export class MyComp {}`;
         const app = `
         import {Component, NgModule} from '@angular/core';
         import {MyComp} from './comp';
 
-        @Component({template: '<my-comp></my-comp>'})
+        @Component({
+          template: '<my-comp></my-comp>',
+          standalone: false,
+        })
         export class AppCmp {
         }
 
@@ -1665,7 +1829,11 @@ describe('find references and rename locations', () => {
       const comp = `
             import {Component} from '@angular/core';
 
-            @Component({selector: 'my-comp', template: ''})
+            @Component({
+              selector: 'my-comp', 
+              template: '',
+              standalone: false,
+            })
             export class MyComp {
               myProp = 'cannot rename me';
             }`;
@@ -1683,7 +1851,11 @@ describe('find references and rename locations', () => {
       const comp = `
             import {Component, Input} from '@angular/core';
 
-            @Component({selector: 'my-comp', template: ''})
+            @Component({
+              selector: 'my-comp', 
+              template: '',
+              standalone: false,
+            })
             export class MyComp {
               @Input() myProp!: string;
             }`;
@@ -1703,7 +1875,11 @@ describe('find references and rename locations', () => {
       const text = `
             import {Component} from '@angular/core';
 
-            @Component({selector: 'my-comp', template: '{{ myObj["myProp"] }}'})
+            @Component({
+              selector: 'my-comp', 
+              template: '{{ myObj["myProp"] }}',
+              standalone: false,
+            })
             export class MyComp {
               readonly myObj = {'myProp': 'hello world'};
             }`;
@@ -1735,14 +1911,21 @@ describe('find references and rename locations', () => {
       const files = {
         'dir.ts': `
         import {Directive, Input} from '@angular/core';
-        @Directive({selector: '[dir]'})
+        @Directive({
+          selector: '[dir]', 
+          standalone: false,
+        })
         export class MyDir {
           @Input() dir!: any;
         }`,
         'my-comp.ts': `
             import {Component, Input} from '@angular/core';
 
-            @Component({selector: 'my-comp', template: '<div dir="something"></div>'})
+            @Component({
+              selector: 'my-comp', 
+              template: '<div dir="something"></div>',
+              standalone: false,
+            })
             export class MyComp {
               @Input() myProp!: string;
             }`,
