@@ -117,7 +117,16 @@
     "name": "DEFER_BLOCK_CONFIG"
   },
   {
+    "name": "DEFER_BLOCK_ID"
+  },
+  {
     "name": "DEFER_BLOCK_STATE"
+  },
+  {
+    "name": "DEFER_BLOCK_STATE2"
+  },
+  {
+    "name": "DEHYDRATED_VIEWS"
   },
   {
     "name": "DI_DECORATOR_FLAG"
@@ -136,6 +145,9 @@
   },
   {
     "name": "DeferBlockInternalState"
+  },
+  {
+    "name": "DeferBlockRegistry"
   },
   {
     "name": "DeferBlockState"
@@ -216,6 +228,9 @@
     "name": "GenericBrowserDomAdapter"
   },
   {
+    "name": "HYDRATE_TRIGGER_CLEANUP_FNS"
+  },
+  {
     "name": "INJECTOR"
   },
   {
@@ -229,6 +244,9 @@
   },
   {
     "name": "INTERNAL_BROWSER_PLATFORM_PROVIDERS"
+  },
+  {
+    "name": "IS_PARTIAL_HYDRATION_ENABLED"
   },
   {
     "name": "InjectFlags"
@@ -381,6 +399,9 @@
     "name": "NullInjector"
   },
   {
+    "name": "ON_COMPLETE_FNS"
+  },
+  {
     "name": "ObjectUnsubscribedError"
   },
   {
@@ -444,6 +465,9 @@
     "name": "SOURCE"
   },
   {
+    "name": "SSR_STATE"
+  },
+  {
     "name": "SVG_NAMESPACE"
   },
   {
@@ -490,6 +514,9 @@
   },
   {
     "name": "TYPE"
+  },
+  {
+    "name": "UNIQUE_SSR_ID"
   },
   {
     "name": "USE_VALUE"
@@ -550,9 +577,6 @@
   },
   {
     "name": "_currentInjector"
-  },
-  {
-    "name": "_findMatchingDehydratedViewImpl"
   },
   {
     "name": "_getInsertInFrontOfRNodeWithI18n"
@@ -1153,6 +1177,9 @@
   },
   {
     "name": "init_bindings"
+  },
+  {
+    "name": "init_blocks"
   },
   {
     "name": "init_bootstrap"
@@ -1827,6 +1854,9 @@
     "name": "init_partial"
   },
   {
+    "name": "init_partial2"
+  },
+  {
     "name": "init_pending_tasks"
   },
   {
@@ -1918,6 +1948,9 @@
   },
   {
     "name": "init_reflection_capabilities"
+  },
+  {
+    "name": "init_registry"
   },
   {
     "name": "init_render"

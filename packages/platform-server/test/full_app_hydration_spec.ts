@@ -25,7 +25,6 @@ import {
   ApplicationRef,
   ChangeDetectorRef,
   Component,
-  ComponentRef,
   ContentChildren,
   createComponent,
   destroyPlatform,
@@ -35,7 +34,6 @@ import {
   ErrorHandler,
   getPlatform,
   inject,
-  Injectable,
   Input,
   NgZone,
   Pipe,
@@ -44,209 +42,47 @@ import {
   Provider,
   QueryList,
   TemplateRef,
-  Type,
   ViewChild,
   ViewContainerRef,
   ViewEncapsulation,
   ɵwhenStable as whenStable,
 } from '@angular/core';
-import {Console} from '@angular/core/src/console';
-import {
-  HydrationStatus,
-  readHydrationInfo,
-  SSR_CONTENT_INTEGRITY_MARKER,
-} from '@angular/core/src/hydration/utils';
 import {NoopNgZone} from '@angular/core/src/zone/ng_zone';
 import {TestBed} from '@angular/core/testing';
 import {clearTranslations, loadTranslations} from '@angular/localize';
-import {
-  bootstrapApplication,
-  HydrationFeature,
-  provideClientHydration,
-  withI18nSupport,
-} from '@angular/platform-browser';
-import {HydrationFeatureKind} from '@angular/platform-browser/src/hydration';
+import {HydrationFeature, withI18nSupport} from '@angular/platform-browser';
 import {provideRouter, RouterOutlet, Routes} from '@angular/router';
 
-import {provideServerRendering} from '../public_api';
-import {renderApplication} from '../src/utils';
+import {
+  getAppContents,
+  prepareEnvironmentAndHydrate,
+  resetTViewsFor,
+  stripUtilAttributes,
+} from './dom_utils';
+import {
+  EMPTY_TEXT_NODE_COMMENT,
+  getComponentRef,
+  getHydrationInfoFromTransferState,
+  NGH_ATTR_NAME,
+  ssr,
+  stripExcessiveSpaces,
+  stripSsrIntegrityMarker,
+  stripTransferDataScript,
+  TEXT_NODE_SEPARATOR_COMMENT,
+  TRANSFER_STATE_TOKEN_ID,
+  verifyAllChildNodesClaimedForHydration,
+  verifyAllNodesClaimedForHydration,
+  verifyClientAndSSRContentsMatch,
+  verifyHasLog,
+  verifyHasNoLog,
+  verifyNodeHasMismatchInfo,
+  verifyNodeHasSkipHydrationMarker,
+  verifyNoNodesWereClaimedForHydration,
+  withDebugConsole,
+  withNoopErrorHandler,
+} from './hydration_utils';
 
-import {getAppContents, renderAndHydrate, resetTViewsFor, stripUtilAttributes} from './dom_utils';
-
-/**
- * The name of the attribute that contains a slot index
- * inside the TransferState storage where hydration info
- * could be found.
- */
-const NGH_ATTR_NAME = 'ngh';
-const EMPTY_TEXT_NODE_COMMENT = 'ngetn';
-const TEXT_NODE_SEPARATOR_COMMENT = 'ngtns';
-
-const SKIP_HYDRATION_ATTR_NAME = 'ngSkipHydration';
-const SKIP_HYDRATION_ATTR_NAME_LOWER_CASE = SKIP_HYDRATION_ATTR_NAME.toLowerCase();
-
-const TRANSFER_STATE_TOKEN_ID = '__nghData__';
-
-function getComponentRef<T>(appRef: ApplicationRef): ComponentRef<T> {
-  return appRef.components[0];
-}
-
-function stripSsrIntegrityMarker(input: string): string {
-  return input.replace(`<!--${SSR_CONTENT_INTEGRITY_MARKER}-->`, '');
-}
-
-function stripTransferDataScript(input: string): string {
-  return input.replace(/<script (.*?)<\/script>/s, '');
-}
-
-function stripExcessiveSpaces(html: string): string {
-  return html.replace(/\s+/g, ' ');
-}
-
-function verifyClientAndSSRContentsMatch(ssrContents: string, clientAppRootElement: HTMLElement) {
-  const clientContents = stripSsrIntegrityMarker(
-    stripTransferDataScript(stripUtilAttributes(clientAppRootElement.outerHTML, false)),
-  );
-  ssrContents = stripSsrIntegrityMarker(
-    stripTransferDataScript(stripUtilAttributes(ssrContents, false)),
-  );
-  expect(getAppContents(clientContents)).toBe(ssrContents, 'Client and server contents mismatch');
-}
-
-function verifyNodeHasMismatchInfo(doc: Document, selector = 'app'): void {
-  expect(readHydrationInfo(doc.querySelector(selector)!)?.status).toBe(HydrationStatus.Mismatched);
-}
-
-function verifyNodeHasSkipHydrationMarker(element: HTMLElement): void {
-  expect(readHydrationInfo(element)?.status).toBe(HydrationStatus.Skipped);
-}
-
-/** Checks whether a given element is a <script> that contains transfer state data. */
-function isTransferStateScript(el: HTMLElement): boolean {
-  return (
-    el.nodeType === Node.ELEMENT_NODE &&
-    el.tagName.toLowerCase() === 'script' &&
-    el.getAttribute('id') === 'ng-state'
-  );
-}
-
-function isSsrContentsIntegrityMarker(el: Node): boolean {
-  return (
-    el.nodeType === Node.COMMENT_NODE && el.textContent?.trim() === SSR_CONTENT_INTEGRITY_MARKER
-  );
-}
-
-/**
- * Walks over DOM nodes starting from a given node and checks
- * whether all nodes were claimed for hydration, i.e. annotated
- * with a special monkey-patched flag (which is added in dev mode
- * only). It skips any nodes with the skip hydration attribute.
- */
-function verifyAllNodesClaimedForHydration(el: HTMLElement, exceptions: HTMLElement[] = []) {
-  if (
-    (el.nodeType === Node.ELEMENT_NODE && el.hasAttribute(SKIP_HYDRATION_ATTR_NAME_LOWER_CASE)) ||
-    exceptions.includes(el) ||
-    isTransferStateScript(el) ||
-    isSsrContentsIntegrityMarker(el)
-  ) {
-    return;
-  }
-
-  if (readHydrationInfo(el)?.status !== HydrationStatus.Hydrated) {
-    fail('Hydration error: the node is *not* hydrated: ' + el.outerHTML);
-  }
-  verifyAllChildNodesClaimedForHydration(el, exceptions);
-}
-
-function verifyAllChildNodesClaimedForHydration(el: HTMLElement, exceptions: HTMLElement[] = []) {
-  let current = el.firstChild;
-  while (current) {
-    verifyAllNodesClaimedForHydration(current as HTMLElement, exceptions);
-    current = current.nextSibling;
-  }
-}
-
-/**
- * Walks over DOM nodes starting from a given node and make sure
- * those nodes were not annotated as "claimed" by hydration.
- * This helper function is needed to verify that the non-destructive
- * hydration feature can be turned off.
- */
-function verifyNoNodesWereClaimedForHydration(el: HTMLElement) {
-  if (readHydrationInfo(el)?.status === HydrationStatus.Hydrated) {
-    fail(
-      'Unexpected state: the following node was hydrated, when the test ' +
-        'expects the node to be re-created instead: ' +
-        el.outerHTML,
-    );
-  }
-  let current = el.firstChild;
-  while (current) {
-    verifyNoNodesWereClaimedForHydration(current as HTMLElement);
-    current = current.nextSibling;
-  }
-}
-
-/**
- * Verifies whether a console has a log entry that contains a given message.
- */
-function verifyHasLog(appRef: ApplicationRef, message: string) {
-  const console = appRef.injector.get(Console) as DebugConsole;
-  const context =
-    `Expected '${message}' to be present in the log, but it was not found. ` +
-    `Logs content: ${JSON.stringify(console.logs)}`;
-  expect(console.logs.some((log) => log.includes(message)))
-    .withContext(context)
-    .toBe(true);
-}
-
-/**
- * Verifies that there is no message with a particular content in a console.
- */
-function verifyHasNoLog(appRef: ApplicationRef, message: string) {
-  const console = appRef.injector.get(Console) as DebugConsole;
-  const context =
-    `Expected '${message}' to be present in the log, but it was not found. ` +
-    `Logs content: ${JSON.stringify(console.logs)}`;
-  expect(console.logs.some((log) => log.includes(message)))
-    .withContext(context)
-    .toBe(false);
-}
-
-function getHydrationInfoFromTransferState(input: string): string | undefined {
-  return input.match(/<script[^>]+>(.*?)<\/script>/)?.[1];
-}
-
-function withNoopErrorHandler() {
-  class NoopErrorHandler extends ErrorHandler {
-    override handleError(error: any): void {
-      // noop
-    }
-  }
-  return [
-    {
-      provide: ErrorHandler,
-      useClass: NoopErrorHandler,
-    },
-  ];
-}
-
-@Injectable()
-class DebugConsole extends Console {
-  logs: string[] = [];
-  override log(message: string) {
-    this.logs.push(message);
-  }
-  override warn(message: string) {
-    this.logs.push(message);
-  }
-}
-
-function withDebugConsole() {
-  return [{provide: Console, useClass: DebugConsole}];
-}
-
-describe('platform-server hydration integration', () => {
+describe('platform-server full application hydration integration', () => {
   beforeEach(() => {
     if (typeof ngDevMode === 'object') {
       // Reset all ngDevMode counters.
@@ -273,40 +109,6 @@ describe('platform-server hydration integration', () => {
     afterEach(() => {
       doc.body.textContent = '';
     });
-
-    /**
-     * This renders the application with server side rendering logic.
-     *
-     * @param component the test component to be rendered
-     * @param doc the document
-     * @param envProviders the environment providers
-     * @returns a promise containing the server rendered app as a string
-     */
-    async function ssr(
-      component: Type<unknown>,
-      options?: {
-        doc?: string;
-        envProviders?: Provider[];
-        hydrationFeatures?: HydrationFeature<HydrationFeatureKind>[];
-        enableHydration?: boolean;
-      },
-    ): Promise<string> {
-      const defaultHtml = '<html><head></head><body><app></app></body></html>';
-      const enableHydration = options?.enableHydration ?? true;
-      const envProviders = options?.envProviders ?? [];
-      const hydrationFeatures = options?.hydrationFeatures ?? [];
-      const providers = [
-        ...envProviders,
-        provideServerRendering(),
-        enableHydration ? provideClientHydration(...hydrationFeatures) : [],
-      ];
-
-      const bootstrap = () => bootstrapApplication(component, {providers});
-
-      return renderApplication(bootstrap, {
-        document: options?.doc ?? defaultHtml,
-      });
-    }
 
     describe('annotations', () => {
       it('should add hydration annotations to component host nodes during ssr', async () => {
@@ -423,7 +225,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -449,7 +251,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -473,7 +275,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -505,7 +307,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ChildComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -533,7 +335,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -561,7 +363,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -600,7 +402,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, NestedComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
             envProviders: [withDebugConsole()],
           });
           const compRef = getComponentRef<SimpleComponent>(appRef);
@@ -638,7 +440,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -666,7 +468,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -694,7 +496,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -724,7 +526,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -767,7 +569,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -812,7 +614,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, Cmp);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -846,7 +648,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -875,7 +677,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -902,7 +704,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -925,7 +727,7 @@ describe('platform-server hydration integration', () => {
             const ssrContents = getAppContents(html);
             expect(ssrContents).toContain(`<app ${NGH_ATTR_NAME}`);
             resetTViewsFor(SimpleComponent);
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
             const clientRootNode = compRef.location.nativeElement;
@@ -963,7 +765,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent, NestedComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -996,7 +798,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1035,7 +837,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1072,7 +874,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1117,7 +919,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent, NestedComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1158,7 +960,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1200,7 +1002,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent, NestedComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1241,7 +1043,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent, NestedComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1294,7 +1096,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent, NestedComponent, OtherNestedComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1326,7 +1128,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1357,7 +1159,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1403,7 +1205,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent, DynamicComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1441,7 +1243,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1484,7 +1286,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent, DynamicComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1527,7 +1329,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1640,7 +1442,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent, DynamicComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1702,7 +1504,7 @@ describe('platform-server hydration integration', () => {
 
               resetTViewsFor(SimpleComponent, DynamicComponent);
 
-              const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+              const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
               const compRef = getComponentRef<SimpleComponent>(appRef);
               appRef.tick();
 
@@ -1763,7 +1565,7 @@ describe('platform-server hydration integration', () => {
 
               resetTViewsFor(SimpleComponent, DynamicComponent);
 
-              const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+              const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
               const compRef = getComponentRef<SimpleComponent>(appRef);
               appRef.tick();
 
@@ -1829,7 +1631,7 @@ describe('platform-server hydration integration', () => {
 
               resetTViewsFor(SimpleComponent);
 
-              const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+              const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
               const compRef = getComponentRef<SimpleComponent>(appRef);
               appRef.tick();
 
@@ -1866,7 +1668,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1907,7 +1709,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -1952,7 +1754,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -2081,7 +1883,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2116,7 +1920,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ContentComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2162,7 +1968,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ContentComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2206,7 +2014,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ContentComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2250,7 +2060,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ContentComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2302,7 +2114,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, OuterContentComponent, InnerContentComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2339,7 +2153,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ContentComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2380,7 +2196,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2421,7 +2239,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ContentComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2462,7 +2282,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, DynamicComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2498,7 +2320,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2532,7 +2356,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2563,7 +2389,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2592,7 +2420,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2633,7 +2463,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2676,7 +2508,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(AppComponent);
 
-          const appRef = await renderAndHydrate(doc, html, AppComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, AppComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<AppComponent>(appRef);
           appRef.tick();
 
@@ -2712,7 +2546,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2748,7 +2584,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2785,7 +2623,9 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            hydrationFeatures,
+          });
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2830,7 +2670,9 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+              hydrationFeatures,
+            });
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -2874,7 +2716,9 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent, {hydrationFeatures});
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+              hydrationFeatures,
+            });
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -2909,7 +2753,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2935,7 +2779,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2963,7 +2807,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -2988,7 +2832,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -3014,7 +2858,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -3040,7 +2884,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -3080,7 +2924,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+            const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
             const compRef = getComponentRef<SimpleComponent>(appRef);
             appRef.tick();
 
@@ -3119,7 +2963,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -3180,7 +3024,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -3249,7 +3093,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, MyPlaceholderCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -3300,7 +3144,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, MyPlaceholderCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -3420,7 +3264,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, MyPlaceholderCmp, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -3498,7 +3342,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, MyPlaceholderCmp, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -3611,7 +3455,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, NestedComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -3648,7 +3492,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -3692,7 +3536,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, Nested);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -3771,7 +3615,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, Layout, RegularCmp, DeeplyNested, DeeplyNestedWrapper);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -3871,7 +3715,7 @@ describe('platform-server hydration integration', () => {
             DeeplyNestedWrapper,
           );
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -3950,7 +3794,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, Layout, RegularCmp, DeeplyNested, DeeplyNestedWrapper);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -3994,7 +3838,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, Nested);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -4036,7 +3880,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, NestedComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4079,7 +3923,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, NestedCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4123,7 +3967,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, NestedComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4166,7 +4010,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, NestedComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent, {
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withDebugConsole()],
         });
         const compRef = getComponentRef<SimpleComponent>(appRef);
@@ -4220,7 +4064,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, NestedComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4271,7 +4115,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, NestedComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4332,7 +4176,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4363,7 +4207,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            await renderAndHydrate(doc, html, SimpleComponent);
+            await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
 
             fail('Expected the hydration process to throw.');
           } catch (e: unknown) {
@@ -4404,7 +4248,7 @@ describe('platform-server hydration integration', () => {
 
             resetTViewsFor(SimpleComponent);
 
-            await renderAndHydrate(doc, html, SimpleComponent);
+            await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
 
             fail('Expected the hydration process to throw.');
           } catch (e: unknown) {
@@ -4446,7 +4290,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4489,7 +4333,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -4527,7 +4371,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4560,7 +4404,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4591,7 +4435,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4626,7 +4470,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4673,7 +4517,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4736,7 +4580,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -4805,7 +4649,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4860,7 +4704,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4928,7 +4772,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, DynamicComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -4984,7 +4828,7 @@ describe('platform-server hydration integration', () => {
         // Before hydration
         expect(observedChildCountLog).toEqual([]);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         await whenStable(appRef);
 
         // afterRender should be triggered by:
@@ -5032,7 +4876,7 @@ describe('platform-server hydration integration', () => {
         // Before hydration
         expect(observedChildCountLog).toEqual([]);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
 
         // afterRender should be triggered by:
         //   1.) Bootstrap
@@ -5080,7 +4924,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent, {
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withDebugConsole()],
         });
         const compRef = getComponentRef<SimpleComponent>(appRef);
@@ -5174,7 +5018,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(App, MatStepper, NestedCmp);
 
-        const appRef = await renderAndHydrate(doc, html, App);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, App);
         const compRef = getComponentRef<App>(appRef);
         appRef.tick();
 
@@ -5215,7 +5059,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -5269,7 +5113,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp, ReprojectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -5316,7 +5160,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -5363,7 +5207,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -5406,7 +5250,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -5449,7 +5293,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -5490,7 +5334,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -5539,7 +5383,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -5581,7 +5425,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -5626,7 +5470,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -5676,7 +5520,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -5742,7 +5586,7 @@ describe('platform-server hydration integration', () => {
             DropdownContentComponent,
           );
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -5781,7 +5625,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -5827,7 +5671,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ProjectorCmp, NestedComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -5877,7 +5721,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent, ProjectorCmp, NestedComponent);
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -5920,7 +5764,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -5962,7 +5806,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -6045,7 +5889,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -6100,7 +5944,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(MyApp, RootComp, ChildComp);
 
-        const appRef = await renderAndHydrate(doc, html, MyApp);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, MyApp);
         const compRef = getComponentRef<MyApp>(appRef);
         appRef.tick();
 
@@ -6253,7 +6097,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -6318,7 +6162,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -6379,7 +6223,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -6434,7 +6278,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, ProjectorCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -6467,7 +6311,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent, {
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [{provide: NgZone, useValue: new NoopNgZone()}, withDebugConsole()],
         });
         const compRef = getComponentRef<SimpleComponent>(appRef);
@@ -6502,7 +6346,7 @@ describe('platform-server hydration integration', () => {
 
         class CustomNgZone extends NgZone {}
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent, {
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [{provide: NgZone, useValue: new CustomNgZone({})}, withDebugConsole()],
         });
         const compRef = getComponentRef<SimpleComponent>(appRef);
@@ -6545,7 +6389,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        await renderAndHydrate(doc, html, SimpleComponent, {
+        await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withNoopErrorHandler()],
         }).catch((err: unknown) => {
           const message = (err as Error).message;
@@ -6586,7 +6430,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        await renderAndHydrate(doc, html, SimpleComponent, {
+        await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: withNoopErrorHandler(),
         }).catch((err: unknown) => {
           const message = (err as Error).message;
@@ -6627,7 +6471,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        await renderAndHydrate(doc, html, SimpleComponent, {
+        await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withNoopErrorHandler()],
         }).catch((err: unknown) => {
           const message = (err as Error).message;
@@ -6666,7 +6510,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        await renderAndHydrate(doc, html, SimpleComponent, {
+        await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withNoopErrorHandler()],
         }).catch((err: unknown) => {
           const message = (err as Error).message;
@@ -6710,7 +6554,7 @@ describe('platform-server hydration integration', () => {
 
           resetTViewsFor(SimpleComponent);
 
-          await renderAndHydrate(doc, html, SimpleComponent, {
+          await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
             envProviders: [withNoopErrorHandler()],
           }).catch((err: unknown) => {
             const message = (err as Error).message;
@@ -6751,7 +6595,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        await renderAndHydrate(doc, html, SimpleComponent, {
+        await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withNoopErrorHandler()],
         }).catch((err: unknown) => {
           const message = (err as Error).message;
@@ -6800,7 +6644,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        await renderAndHydrate(doc, html, SimpleComponent, {
+        await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withNoopErrorHandler()],
         }).catch((err: unknown) => {
           const message = (err as Error).message;
@@ -6842,7 +6686,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        await renderAndHydrate(doc, html, SimpleComponent, {
+        await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withNoopErrorHandler()],
         }).catch((err: unknown) => {
           const message = (err as Error).message;
@@ -6889,7 +6733,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        await renderAndHydrate(doc, html, SimpleComponent, {
+        await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withNoopErrorHandler()],
         }).catch((err: unknown) => {
           const message = (err as Error).message;
@@ -6937,7 +6781,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        await renderAndHydrate(doc, html, SimpleComponent, {
+        await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withNoopErrorHandler()],
         }).catch((err: unknown) => {
           const message = (err as Error).message;
@@ -7025,7 +6869,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        await renderAndHydrate(doc, html, SimpleComponent, {
+        await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withNoopErrorHandler()],
         }).catch((err: unknown) => {
           const message = (err as Error).message;
@@ -7064,7 +6908,7 @@ describe('platform-server hydration integration', () => {
           expect(ssrContents).toContain('<app ngh');
 
           resetTViewsFor(SimpleComponent);
-          await renderAndHydrate(doc, html, SimpleComponent);
+          await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
 
           fail('Expected the hydration process to throw.');
         } catch (e: unknown) {
@@ -7094,7 +6938,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent, {
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
           envProviders: [withDebugConsole()],
         });
         const compRef = getComponentRef<SimpleComponent>(appRef);
@@ -7145,7 +6989,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7204,7 +7048,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7238,7 +7082,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7288,7 +7132,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7339,7 +7183,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7393,7 +7237,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7425,7 +7269,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7466,7 +7310,7 @@ describe('platform-server hydration integration', () => {
           expect(ssrContents).not.toContain('Item #3');
           expect(ssrContents).toContain('This is an "empty" block');
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -7518,7 +7362,7 @@ describe('platform-server hydration integration', () => {
           expect(ssrContents).toContain('Item #3');
           expect(ssrContents).not.toContain('This is an "empty" block');
 
-          const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
           const compRef = getComponentRef<SimpleComponent>(appRef);
           appRef.tick();
 
@@ -7566,7 +7410,7 @@ describe('platform-server hydration integration', () => {
         expect(ssrContents).not.toContain('Item #4');
         expect(ssrContents).not.toContain('Item #5');
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7621,7 +7465,7 @@ describe('platform-server hydration integration', () => {
         expect(ssrContents).toContain('b');
         expect(ssrContents).toContain('c');
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7661,7 +7505,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7698,7 +7542,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7747,7 +7591,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7789,7 +7633,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7842,7 +7686,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7874,7 +7718,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7908,7 +7752,7 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent);
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent);
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -7969,7 +7813,9 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, LazyCmp);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent, {envProviders});
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+          envProviders,
+        });
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
@@ -8028,7 +7874,9 @@ describe('platform-server hydration integration', () => {
 
         resetTViewsFor(SimpleComponent, CmpA);
 
-        const appRef = await renderAndHydrate(doc, html, SimpleComponent, {envProviders});
+        const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+          envProviders,
+        });
         const compRef = getComponentRef<SimpleComponent>(appRef);
         appRef.tick();
 
