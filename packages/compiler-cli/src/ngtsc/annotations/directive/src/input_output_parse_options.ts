@@ -114,10 +114,10 @@ export function parseAndValidateInputAndOutputOptions(optionsNode: ts.Expression
   alias: string | undefined;
 } {
   // Check for case where input is augmented with a debugName optional arg
-  const inputOptionsFromDebugNameCase = checkInputForForDebugNameCase(optionsNode);
-  if (inputOptionsFromDebugNameCase) {
-    return inputOptionsFromDebugNameCase;
-  }
+  // const inputOptionsFromDebugNameCase = checkInputForForDebugNameCase(optionsNode);
+  // if (inputOptionsFromDebugNameCase) {
+  //   return inputOptionsFromDebugNameCase;
+  // }
 
   if (!ts.isObjectLiteralExpression(optionsNode)) {
     throw new FatalDiagnosticError(

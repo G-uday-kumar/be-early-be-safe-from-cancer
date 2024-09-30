@@ -9,9 +9,9 @@ function insertDebugNameIntoExistingConfigObject(
 
   const existingArgument = nodeArgs[configPosition] as ts.ObjectLiteralExpression;
   const properties = [...existingArgument.properties];
-
+  
   const debugNameExists = properties.some(
-    (prop) => ts.isPropertyAssignment(prop) && prop.name.getText() === 'debugName',
+    (prop) => ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name) && prop.name.text === 'debugName',
   );
 
   if (debugNameExists) {
@@ -39,11 +39,12 @@ function insertDebugNameIntoExistingConfigObject(
 
   nodeArgs[configPosition] = spreadElement;
 
-  return ts.factory.createCallExpression(
+  return ts.factory.updateCallExpression(
+    callExpression,
     callExpression.expression,
     callExpression.typeArguments,
     ts.factory.createNodeArray(nodeArgs),
-  );
+  )
 }
 
 function insertDebugNameIntoCallExpression(
@@ -92,7 +93,8 @@ function insertDebugNameIntoCallExpression(
     newArgs.push(spreadElement);
   }
 
-  return ts.factory.createCallExpression(
+  return ts.factory.updateCallExpression(
+    callExpression,
     callExpression.expression,
     callExpression.typeArguments,
     ts.factory.createNodeArray(newArgs),
@@ -332,7 +334,7 @@ function transformPropertyAssignment(
     ts.factory.createBinaryExpression(
       node.expression.left,
       node.expression.operatorToken,
-      insertDebugNameIntoCallExpression(node.expression.right, node.expression.left.name.getText()),
+      insertDebugNameIntoCallExpression(node.expression.right, node.expression.left.name.text),
     ),
   );
 }
