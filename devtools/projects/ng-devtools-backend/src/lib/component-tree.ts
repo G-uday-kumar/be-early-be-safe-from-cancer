@@ -39,6 +39,7 @@ enum ChangeDetectionStrategy {
 
 import {ComponentTreeNode, DirectiveInstanceType, ComponentInstanceType} from './interfaces';
 
+import {InjectFlags} from '@angular/core';
 import type {
   ClassProvider,
   ExistingProvider,
@@ -264,6 +265,7 @@ const getDependenciesForDirective = (
 
   let dependencies =
     ngDebugClient().ɵgetDependenciesFromInjectable(injector, directive)?.dependencies ?? [];
+  const uniqueServices = new Set<string>();
   const serializedInjectedServices: SerializedInjectedService[] = [];
 
   let position = 0;
@@ -298,24 +300,42 @@ const getDependenciesForDirective = (
       }),
     ];
 
-    if (dependency.token && isInjectionToken(dependency.token)) {
-      serializedInjectedServices.push({
-        token: dependency.token!.toString(),
-        value: valueToLabel(dependency.value),
-        flags: dependency.flags as InjectOptions,
-        position: [position++],
-        resolutionPath: dependencyResolutionPath,
-      });
-      continue;
+    let flags = dependency.flags as InjectOptions;
+    let flagToken = '';
+    if (flags !== undefined) {
+      if (typeof flags === 'number') {
+        flags = {
+          optional: !!(flags & InjectFlags.Optional),
+          skipSelf: !!(flags & InjectFlags.SkipSelf),
+          self: !!(flags & InjectFlags.Self),
+          host: !!(flags & InjectFlags.Host),
+        };
+      }
+      flagToken = (['optional', 'skipSelf', 'self', 'host'] as (keyof InjectOptions)[])
+        .filter((key) => flags[key])
+        .join('-');
     }
 
-    serializedInjectedServices.push({
-      token: valueToLabel(dependency.token),
-      value: valueToLabel(dependency.value),
-      flags: dependency.flags as InjectOptions,
-      position: [position++],
-      resolutionPath: dependencyResolutionPath,
-    });
+    const serviceKey = `${dependency.token}-${flagToken}`;
+    if (!uniqueServices.has(serviceKey)) {
+      uniqueServices.add(serviceKey);
+
+      const service = {
+        token: valueToLabel(dependency.token),
+        value: valueToLabel(dependency.value),
+        flags,
+        position: [position],
+        resolutionPath: dependencyResolutionPath,
+      };
+
+      if (dependency.token && isInjectionToken(dependency.token)) {
+        service.token = dependency.token!.toString();
+      }
+
+      serializedInjectedServices.push(service);
+    }
+
+    position++;
   }
 
   return serializedInjectedServices;
