@@ -645,6 +645,43 @@ declare global {
      * the user with a string returned from the event handler.
      */
     __zone_symbol__enable_beforeunload?: boolean;
+
+    /**
+     * https://github.com/angular/angular/issues/41506
+     * https://github.com/angular/angular/issues/44446
+     *
+     * By default, `zone.js` maintains a microtask queue manually, which means the microtask
+     * queue is drained whenever `zone.js` decides to do so under certain circumstances.
+     * There are cases when the microtask queue may be drained synchronously after an event
+     * task is invoked (if it’s the very first task in the call stack).
+     * Tasks may actually schedule other tasks, thereby incrementing the stack frame.
+     * In that case, the microtask queue might be drained after the last task is invoked.
+     *
+     * Given that code:
+     * ```js
+     * const listener = () => {
+     *   Promise.resolve().then(() => console.log('microTask'));
+     * };
+     *
+     * document.body.addEventListener('click', listener);
+     * document.body.click();
+     * console.log('main stack');
+     * ```
+     *
+     * We would assume that "main stack" would be logged first and then "microTask"
+     * would be logged. However, with `zone.js`, "microTask" will be logged first
+     * because it drains the microtask queue too early, as the click event task is the
+     * very top task on the stack. `zone.js` drains microtasks by default whenever the
+     * number of nested tasks equals zero.
+     *
+     * https://promisesaplus.com/#the-then-method
+     * According to the spec: `onFulfilled` or `onRejected` must not be called until the
+     * execution context stack contains only platform code.
+     *
+     * You may consider enabling the flag below. This will ensure that microtask draining
+     * does not happen synchronously and always occurs within a browser microtask.
+     */
+    __zone_symbol__enable_native_microtask_draining?: boolean;
   }
 
   /**
