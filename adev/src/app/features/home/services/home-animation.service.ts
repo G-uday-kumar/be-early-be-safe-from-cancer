@@ -45,7 +45,6 @@ import {
  */
 @Injectable()
 export class HomeAnimation {
-  private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
   private readonly window = inject(WINDOW);
   private readonly themeManager = inject(ThemeManager);
@@ -77,11 +76,17 @@ export class HomeAnimation {
   private refreshRate = 60;
   private playbackRate = 1;
 
+  // The `DestroyRef` is provided by the `init` caller because injecting
+  // the `DestroyRef` within `HomeAnimation` would resolve to `EnvironmentInjector`,
+  // which would prevent us from removing the event listeners we set up here.
+  private destroyRef!: DestroyRef;
+
   /**
    * Initialize CSS styles, GSAP, the WebGL canvas and animations.
    */
-  async init(element: HTMLDivElement): Promise<void> {
+  async init(element: HTMLDivElement, destroyRef: DestroyRef): Promise<void> {
     this.element = element;
+    this.destroyRef = destroyRef;
 
     // CSS styles needed for the animation
     this.element.classList.add(WEBGL_CLASS_NAME);

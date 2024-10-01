@@ -11,6 +11,7 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   Injector,
   OnDestroy,
@@ -47,6 +48,7 @@ export default class Home implements OnInit, AfterViewInit, OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly window = inject(WINDOW);
   private readonly activatedRoute = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly tutorialFiles = TUTORIALS_HOMEPAGE_DIRECTORY;
   protected readonly isUwu = 'uwu' in this.activatedRoute.snapshot.queryParams;
@@ -84,10 +86,7 @@ export default class Home implements OnInit, AfterViewInit, OnDestroy {
     if (isPlatformBrowser(this.platformId)) {
       // Stop observing and disconnect
       this.intersectionObserver?.disconnect();
-
-      if (this.homeAnimation) {
-        this.homeAnimation.destroy();
-      }
+      this.homeAnimation?.destroy();
     }
   }
 
@@ -130,7 +129,7 @@ export default class Home implements OnInit, AfterViewInit, OnDestroy {
       import('./services/home-animation.service').then((c) => c.HomeAnimation),
     );
 
-    await this.homeAnimation.init(this.element);
+    await this.homeAnimation.init(this.element, this.destroyRef);
   }
 
   private isWebGLAvailable() {
